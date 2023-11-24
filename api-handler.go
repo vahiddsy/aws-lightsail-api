@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -75,11 +77,31 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 }
 
 func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
+	// Parse region query parameter
 	region := r.URL.Query().Get("region")
+	// Parse name query parameter
 	instanceName := r.URL.Query().Get("name")
+	// Parse timestamp query parameter
+	timestampParam := r.URL.Query().Get("secret")
 
-	if region == "" || instanceName == "" {
-		http.Error(w, "Please provide 'region' and 'name' query parameters", http.StatusBadRequest)
+	if region == "" || instanceName == "" || timestampParam == "" {
+		http.Error(w, "Please provide 'region' and 'name' and 'secret' query parameters", http.StatusBadRequest)
+		return
+	}
+
+	// Convert timestamp to integer
+	timestamp, err := strconv.ParseInt(timestampParam, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid timestamp format", http.StatusBadRequest)
+		return
+	}
+
+	// Get current time
+	now := time.Now().Unix()
+
+	// Check if the timestamp is within a 2-minute difference from now
+	if now-timestamp > 120 || timestamp-now > 120 {
+		http.Error(w, "Invalid request: Timestamp is more than 2 minutes difference from current time", http.StatusBadRequest)
 		return
 	}
 
