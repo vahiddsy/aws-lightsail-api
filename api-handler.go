@@ -52,8 +52,14 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 
 	instances := []string{}
 	for _, instance := range resp.Instances {
-		instanceStatus := fmt.Sprintf("Name: %s, PublicIP: %s, State: %s",
-			*instance.Name, *instance.PublicIpAddress, *instance.State.Name)
+		var instanceStatus string
+		if *instance.State.Name != "stopped" {
+			instanceStatus = fmt.Sprintf("Name: %s, State: %s, PublicIP: %s",
+				*instance.Name, *instance.State.Name, *instance.PublicIpAddress)
+		} else {
+			instanceStatus = fmt.Sprintf("Name: %s, State: %s",
+				*instance.Name, *instance.State.Name)
+		}
 		instances = append(instances, instanceStatus)
 	}
 
@@ -125,9 +131,25 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
+
+	values := []string{"us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2", "ap-south-1", "ca-central-1", "eu-north-1"}
+
+	responseJSON, err := json.Marshal(values)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseJSON)
+}
+
 func main() {
 	http.HandleFunc("/api/instances", listLightsailInstances)
 	http.HandleFunc("/api/instance", resetLightsailInstance)
+	http.HandleFunc("/api/regions", listLightsailRegions)
 
 	fmt.Println("Server is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
