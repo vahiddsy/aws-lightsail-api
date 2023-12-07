@@ -37,6 +37,14 @@ type Location struct {
 	RegionName       string `json:"RegionName"`
 }
 
+var Regions = []string{
+	"us-east-1", "us-east-2", "us-west-2",
+	"eu-west-1", "eu-west-2", "eu-west-3",
+	"eu-central-1", "ap-southeast-1",
+	"ap-southeast-2", "ap-northeast-1", "ap-northeast-2",
+	"ap-south-1", "ca-central-1", "eu-north-1",
+}
+
 func logging(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("- %s %s %s %s\n", r.RemoteAddr, r.Method, r.URL, r.Proto)
@@ -195,17 +203,18 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 
 func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 
-	values := []string{"us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2", "ap-south-1", "ca-central-1", "eu-north-1"}
-
-	responseJSON, err := json.Marshal(values)
+	// Convert Regions slice to JSON
+	regionsJSON, err := json.Marshal(Regions)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		return
 	}
 
+	// Set the Content-Type header to application/json
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseJSON)
+
+	// Write the JSON response
+	w.Write(regionsJSON)
 }
 
 func main() {
