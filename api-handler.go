@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -52,8 +54,14 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 
 	instances := []string{}
 	for _, instance := range resp.Instances {
-		instanceStatus := fmt.Sprintf("Name: %s, PublicIP: %s, State: %s",
-			*instance.Name, *instance.PublicIpAddress, *instance.State.Name)
+		var instanceStatus string
+		if *instance.State.Name != "stopped" {
+			instanceStatus = fmt.Sprintf("Name: %s, State: %s, PublicIP: %s",
+				*instance.Name, *instance.State.Name, *instance.PublicIpAddress)
+		} else {
+			instanceStatus = fmt.Sprintf("Name: %s, State: %s",
+				*instance.Name, *instance.State.Name)
+		}
 		instances = append(instances, instanceStatus)
 	}
 
@@ -69,11 +77,31 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 }
 
 func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
+	// Parse region query parameter
 	region := r.URL.Query().Get("region")
+	// Parse name query parameter
 	instanceName := r.URL.Query().Get("name")
+	// Parse timestamp query parameter
+	timestampParam := r.URL.Query().Get("secret")
 
-	if region == "" || instanceName == "" {
-		http.Error(w, "Please provide 'region' and 'name' query parameters", http.StatusBadRequest)
+	if region == "" || instanceName == "" || timestampParam == "" {
+		http.Error(w, "Please provide 'region' and 'name' and 'secret' query parameters", http.StatusBadRequest)
+		return
+	}
+
+	// Convert timestamp to integer
+	timestamp, err := strconv.ParseInt(timestampParam, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid timestamp format", http.StatusBadRequest)
+		return
+	}
+
+	// Get current time
+	now := time.Now().Unix()
+
+	// Check if the timestamp is within a 2-minute difference from now
+	if now-timestamp > 120 || timestamp-now > 120 {
+		http.Error(w, "Invalid request: Timestamp is more than 2 minutes difference from current time", http.StatusBadRequest)
 		return
 	}
 
@@ -125,9 +153,25 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
+
+	values := []string{"us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2", "ap-south-1", "ca-central-1", "eu-north-1"}
+
+	responseJSON, err := json.Marshal(values)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseJSON)
+}
+
 func main() {
 	http.HandleFunc("/api/instances", listLightsailInstances)
 	http.HandleFunc("/api/instance", resetLightsailInstance)
+	http.HandleFunc("/api/regions", listLightsailRegions)
 
 	fmt.Println("Server is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
