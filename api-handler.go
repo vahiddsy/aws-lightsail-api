@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +15,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 )
+
+func logging(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("- %s %s %s %s\n", r.RemoteAddr, r.Method, r.URL, r.Proto)
+		f.ServeHTTP(w, r)
+		// log.Println(r.URL.Path)
+		// f(w, r)
+	}
+}
 
 func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	region := r.URL.Query().Get("region")
@@ -169,9 +179,9 @@ func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/api/instances", listLightsailInstances)
-	http.HandleFunc("/api/instance", resetLightsailInstance)
-	http.HandleFunc("/api/regions", listLightsailRegions)
+	http.HandleFunc("/api/instances", logging(listLightsailInstances))
+	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
+	http.HandleFunc("/api/regions", logging(listLightsailRegions))
 
 	fmt.Println("Server is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
