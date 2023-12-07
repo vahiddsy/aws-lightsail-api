@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,26 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 )
+
+type InstanceResponse struct {
+	CreatedAt        string `json:"CreatedAt"`
+	ErrorCode        string `json:"ErrorCode"`
+	ErrorDetails     string `json:"ErrorDetails"`
+	Id               string `json:"Id"`
+	IsTerminal       bool   `json:"IsTerminal"`
+	Location         Location
+	OperationDetails string `json:"OperationDetails"`
+	OperationType    string `json:"OperationType"`
+	ResourceName     string `json:"ResourceName"`
+	ResourceType     string `json:"ResourceType"`
+	Status           string `json:"Status"`
+	StatusChangedAt  string `json:"StatusChangedAt"`
+}
+
+type Location struct {
+	AvailabilityZone string `json:"AvailabilityZone"`
+	RegionName       string `json:"RegionName"`
+}
 
 func logging(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -157,9 +178,18 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse JSON into a slice of InstanceResponse
+	var responses []InstanceResponse
+	err = json.Unmarshal([]byte(responseJSON), &responses)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseJSON)
+	http.Redirect(w, r, "https://api.antinone.xyz/status", http.StatusSeeOther)
+	// w.WriteHeader(http.StatusOK)
+	// w.Write(responseJSON)
 
 }
 
@@ -182,6 +212,11 @@ func main() {
 	http.HandleFunc("/api/instances", logging(listLightsailInstances))
 	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
 	http.HandleFunc("/api/regions", logging(listLightsailRegions))
+	tmpl := template.Must(template.ParseFiles("./web/index.html"))
+	http.HandleFunc("/status", logging(func(w http.ResponseWriter, r *http.Request) {
+		data := InstanceResponse{}
+		tmpl.Execute(w, data)
+	}))
 
 	fmt.Println("Server is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
