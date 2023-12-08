@@ -58,13 +58,13 @@ Replace `your-region` with the AWS region you want to list the instances for and
 
 ### Resetting a Lightsail Instance
 
-To reset a specific Lightsail instance, make a GET request to the following endpoint:
+To action a specific Lightsail instance, make a GET request to the following endpoint:
 
 ```
 http://localhost:8080/api/instance?region=your-region&name=your-instance-name&secret=timestamp&profile=profile-name&action=[reset|changeip|poweroff|poweron]
 ```
 
-Replace `your-region` with the AWS region and `your-instance-name` with the name of the instance you want to reset. The instance reset logic should be added to the `resetLightsailInstance` handler in the code.
+Replace `your-region` with the AWS region and `your-instance-name` with the name of the instance you want to action. The instance action logic should be added to the `resetLightsailInstance` handler in the code.
 
 ## License
 
