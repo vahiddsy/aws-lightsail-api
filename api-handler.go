@@ -37,12 +37,20 @@ type Location struct {
 	RegionName       string `json:"RegionName"`
 }
 
+var responses []InstanceResponse
+
 var Regions = []string{
 	"us-east-1", "us-east-2", "us-west-2",
 	"eu-west-1", "eu-west-2", "eu-west-3",
 	"eu-central-1", "ap-southeast-1",
 	"ap-southeast-2", "ap-northeast-1", "ap-northeast-2",
 	"ap-south-1", "ca-central-1", "eu-north-1",
+}
+
+type Instance struct {
+	Name     string `json:"Name"`
+	State    string `json:"State"`
+	PublicIP string `json:"PublicIP,omitempty"`
 }
 
 func logging(f http.HandlerFunc) http.HandlerFunc {
@@ -91,17 +99,17 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instances := []string{}
+	instances := []Instance{}
 	for _, instance := range resp.Instances {
-		var instanceStatus string
+		var inst Instance
+		inst.Name = *instance.Name
+		inst.State = *instance.State.Name
+
 		if *instance.State.Name != "stopped" {
-			instanceStatus = fmt.Sprintf("Name: %s, State: %s, PublicIP: %s",
-				*instance.Name, *instance.State.Name, *instance.PublicIpAddress)
-		} else {
-			instanceStatus = fmt.Sprintf("Name: %s, State: %s",
-				*instance.Name, *instance.State.Name)
+			inst.PublicIP = *instance.PublicIpAddress
 		}
-		instances = append(instances, instanceStatus)
+
+		instances = append(instances, inst)
 	}
 
 	responseJSON, err := json.Marshal(instances)
@@ -187,7 +195,6 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse JSON into a slice of InstanceResponse
-	var responses []InstanceResponse
 	err = json.Unmarshal([]byte(responseJSON), &responses)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
@@ -195,9 +202,9 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	http.Redirect(w, r, "https://api.antinone.xyz/status", http.StatusSeeOther)
-	// w.WriteHeader(http.StatusOK)
-	// w.Write(responseJSON)
+	//http.Redirect(w, r, "http://127.0.0.1:8080/api/status", http.StatusSeeOther)
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseJSON)
 
 }
 
@@ -221,10 +228,21 @@ func main() {
 	http.HandleFunc("/api/instances", logging(listLightsailInstances))
 	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
 	http.HandleFunc("/api/regions", logging(listLightsailRegions))
-	tmpl := template.Must(template.ParseFiles("./web/index.html"))
-	http.HandleFunc("/status", logging(func(w http.ResponseWriter, r *http.Request) {
-		data := InstanceResponse{}
-		tmpl.Execute(w, data)
+
+	http.HandleFunc("/api/status", logging(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := template.ParseFiles("./web/index.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("%s", responses)
+		data := responses
+		// Execute the template and pass the response as data
+		err = tmpl.Execute(w, data)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 
 	fmt.Println("Server is running on :8080")
