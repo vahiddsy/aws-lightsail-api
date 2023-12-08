@@ -17,6 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 )
 
+type Location struct {
+	AvailabilityZone string `json:"AvailabilityZone"`
+	RegionName       string `json:"RegionName"`
+}
 type InstanceResponse struct {
 	CreatedAt        string `json:"CreatedAt"`
 	ErrorCode        string `json:"ErrorCode"`
@@ -30,11 +34,6 @@ type InstanceResponse struct {
 	ResourceType     string `json:"ResourceType"`
 	Status           string `json:"Status"`
 	StatusChangedAt  string `json:"StatusChangedAt"`
-}
-
-type Location struct {
-	AvailabilityZone string `json:"AvailabilityZone"`
-	RegionName       string `json:"RegionName"`
 }
 
 var responses []InstanceResponse
@@ -53,12 +52,31 @@ type Instance struct {
 	PublicIP string `json:"PublicIP,omitempty"`
 }
 
+// statusInterceptor is a custom ResponseWriter that tracks the status code
+type statusInterceptor struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// WriteHeader intercepts the status code before writing it to the response
+func (i *statusInterceptor) WriteHeader(code int) {
+	i.statusCode = code
+	i.ResponseWriter.WriteHeader(code)
+}
+
 func logging(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("- %s %s %s %s\n", r.RemoteAddr, r.Method, r.URL, r.Proto)
-		f.ServeHTTP(w, r)
-		// log.Println(r.URL.Path)
-		// f(w, r)
+
+		// Intercept the response writer to track the status code
+		interceptor := &statusInterceptor{ResponseWriter: w}
+
+		// Call the original handler with the intercepted writer
+		f.ServeHTTP(interceptor, r)
+
+		// Log the request details along with the status code
+		log.Printf("- %s %s %s %s %s %s %d\n", r.RemoteAddr, r.Host, r.Method, r.URL, r.Proto, r.UserAgent(), interceptor.statusCode)
+		//f.ServeHTTP(w, r)
+
 	}
 }
 
@@ -201,8 +219,11 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.UserAgent() != "PostmanRuntime/7.35.0" {
+		http.Redirect(w, r, "/api/status", http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	//http.Redirect(w, r, "http://127.0.0.1:8080/api/status", http.StatusSeeOther)
 	w.WriteHeader(http.StatusOK)
 	w.Write(responseJSON)
 
@@ -235,8 +256,9 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("%s", responses)
-		data := responses
+		//log.Printf("%s", responses[0])
+		data := responses[0]
+
 		// Execute the template and pass the response as data
 		err = tmpl.Execute(w, data)
 		if err != nil {
@@ -246,7 +268,7 @@ func main() {
 	}))
 
 	fmt.Println("Server is running on :8080")
-	err := http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe("0.0.0.0:8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}
