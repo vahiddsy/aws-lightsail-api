@@ -219,7 +219,7 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.UserAgent() != "PostmanRuntime/7.35.0" {
+	if r.UserAgent() = "PostmanRuntime/7.35.0" {
 		http.Redirect(w, r, "/api/status", http.StatusSeeOther)
 		return
 	}
@@ -240,7 +240,7 @@ func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 
 	// Set the Content-Type header to application/json
 	w.Header().Set("Content-Type", "application/json")
-
+	w.WriteHeader(http.StatusOK)
 	// Write the JSON response
 	w.Write(regionsJSON)
 }
@@ -267,8 +267,8 @@ func main() {
 		}
 	}))
 
-	fmt.Println("Server is running on :8080")
-	err := http.ListenAndServe("0.0.0.0:8080", nil)
+	fmt.Println("Version : v1.2\nServer is running on :8080")
+	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}
