@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Response Status Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        header {
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 1em;
+        }
+
+        section {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            padding: 2em;
+        }
+
+        .component {
+            flex: 1 1 300px;
+            margin: 1em;
+            padding: 1em;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+
+        .ok { color: #008000; }
+        .warning { color: #FFD700; }
+        .error { color: #FF0000; }
+
+        footer {
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 1em;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }
+
+        @media (max-width: 600px) {
+            .component {
+                flex: 1 1 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Status Page</h1>
+    </header>
+
+    <section>
+    {{if .Status}}
+        <div class="component ok">
+            <h2>InstanceName: {{.ResourceName}}</h2>
+            <p>Action: {{.OperationType}}</p>
+            <p>Location: {{.Location.RegionName}}</p>
+            <p>Status: {{.Status}}</p>
+            <pre>{{.CreatedAt}}</pre>
+        </div>
+    {{else if .IsTerminal}}
+        <div class="component warning">
+            <h2>InstanceName: {{.ResourceName}}</h2>
+            <p>Action: {{.OperationType}}</p>
+            <p>Location: {{.Location.RegionName}}</p>
+            <p>Status: {{.Status}}</p>
+            <p>Status: Warning</p>
+        </div>
+    {{else}}
+        <div class="component error">
+            <h2>InstanceName: {{.ResourceName}}</h2>
+            <p>Action: {{.OperationType}}</p>
+            <p>Location: {{.Location.RegionName}}</p>
+            <p>Status: {{.Status}}</p>
+            <p>Status: Error</p>
+        </div>
+    {{end}}
+    </section>
+
+    <footer>
+        <p>&copy; 2023 Status Page</p>
+    </footer>
+
+</body>
+</html>

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +16,69 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 )
+
+type Location struct {
+	AvailabilityZone string `json:"AvailabilityZone"`
+	RegionName       string `json:"RegionName"`
+}
+type InstanceResponse struct {
+	CreatedAt        string `json:"CreatedAt"`
+	ErrorCode        string `json:"ErrorCode"`
+	ErrorDetails     string `json:"ErrorDetails"`
+	Id               string `json:"Id"`
+	IsTerminal       bool   `json:"IsTerminal"`
+	Location         Location
+	OperationDetails string `json:"OperationDetails"`
+	OperationType    string `json:"OperationType"`
+	ResourceName     string `json:"ResourceName"`
+	ResourceType     string `json:"ResourceType"`
+	Status           string `json:"Status"`
+	StatusChangedAt  string `json:"StatusChangedAt"`
+}
+
+var responses []InstanceResponse
+
+var Regions = []string{
+	"us-east-1", "us-east-2", "us-west-2",
+	"eu-west-1", "eu-west-2", "eu-west-3",
+	"eu-central-1", "ap-southeast-1",
+	"ap-southeast-2", "ap-northeast-1", "ap-northeast-2",
+	"ap-south-1", "ca-central-1", "eu-north-1",
+}
+
+type Instance struct {
+	Name     string `json:"Name"`
+	State    string `json:"State"`
+	PublicIP string `json:"PublicIP,omitempty"`
+}
+
+// statusInterceptor is a custom ResponseWriter that tracks the status code
+type statusInterceptor struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// WriteHeader intercepts the status code before writing it to the response
+func (i *statusInterceptor) WriteHeader(code int) {
+	i.statusCode = code
+	i.ResponseWriter.WriteHeader(code)
+}
+
+func logging(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		// Intercept the response writer to track the status code
+		interceptor := &statusInterceptor{ResponseWriter: w}
+
+		// Call the original handler with the intercepted writer
+		f.ServeHTTP(interceptor, r)
+
+		// Log the request details along with the status code
+		log.Printf("- %s %s %s %s %s %s %d\n", r.RemoteAddr, r.Host, r.Method, r.URL, r.Proto, r.UserAgent(), interceptor.statusCode)
+		//f.ServeHTTP(w, r)
+
+	}
+}
 
 func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	region := r.URL.Query().Get("region")
@@ -52,17 +117,17 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instances := []string{}
+	instances := []Instance{}
 	for _, instance := range resp.Instances {
-		var instanceStatus string
+		var inst Instance
+		inst.Name = *instance.Name
+		inst.State = *instance.State.Name
+
 		if *instance.State.Name != "stopped" {
-			instanceStatus = fmt.Sprintf("Name: %s, State: %s, PublicIP: %s",
-				*instance.Name, *instance.State.Name, *instance.PublicIpAddress)
-		} else {
-			instanceStatus = fmt.Sprintf("Name: %s, State: %s",
-				*instance.Name, *instance.State.Name)
+			inst.PublicIP = *instance.PublicIpAddress
 		}
-		instances = append(instances, instanceStatus)
+
+		instances = append(instances, inst)
 	}
 
 	responseJSON, err := json.Marshal(instances)
@@ -147,6 +212,17 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse JSON into a slice of InstanceResponse
+	err = json.Unmarshal([]byte(responseJSON), &responses)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if r.UserAgent() = "PostmanRuntime/7.35.0" {
+		http.Redirect(w, r, "/api/status", http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(responseJSON)
@@ -155,25 +231,43 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 
 func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 
-	values := []string{"us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2", "ap-south-1", "ca-central-1", "eu-north-1"}
-
-	responseJSON, err := json.Marshal(values)
+	// Convert Regions slice to JSON
+	regionsJSON, err := json.Marshal(Regions)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		return
 	}
 
+	// Set the Content-Type header to application/json
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(responseJSON)
+	// Write the JSON response
+	w.Write(regionsJSON)
 }
 
 func main() {
-	http.HandleFunc("/api/instances", listLightsailInstances)
-	http.HandleFunc("/api/instance", resetLightsailInstance)
-	http.HandleFunc("/api/regions", listLightsailRegions)
+	http.HandleFunc("/api/instances", logging(listLightsailInstances))
+	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
+	http.HandleFunc("/api/regions", logging(listLightsailRegions))
 
-	fmt.Println("Server is running on :8080")
+	http.HandleFunc("/api/status", logging(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := template.ParseFiles("./web/index.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		//log.Printf("%s", responses[0])
+		data := responses[0]
+
+		// Execute the template and pass the response as data
+		err = tmpl.Execute(w, data)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}))
+
+	fmt.Println("Version : v1.2\nServer is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
