@@ -7,13 +7,11 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 )
 
@@ -74,7 +72,7 @@ func logging(f http.HandlerFunc) http.HandlerFunc {
 		f.ServeHTTP(interceptor, r)
 
 		// Log the request details along with the status code
-		log.Printf("- %s %s %s %s %s %s %d\n", r.RemoteAddr, r.Host, r.Method, r.URL, r.Proto, r.UserAgent(), interceptor.statusCode)
+		log.Printf("- %s %s - %d %s %s - %s '%s'\n", r.RemoteAddr, r.Host, interceptor.statusCode, r.Method, r.URL, r.Proto, r.UserAgent())
 		//f.ServeHTTP(w, r)
 
 	}
@@ -82,24 +80,17 @@ func logging(f http.HandlerFunc) http.HandlerFunc {
 
 func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	region := r.URL.Query().Get("region")
-	if region == "" {
-		http.Error(w, "Please provide a 'region' query parameter", http.StatusBadRequest)
+	profile := r.URL.Query().Get("profile")
+	if region == "" || profile == "" {
+		http.Error(w, "Please provide a 'region' or 'profile' query parameter", http.StatusBadRequest)
 		return
 	}
 
-	// Replace these with your AWS access key and secret key
-	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-
-	staticProvider := credentials.NewStaticCredentialsProvider(
-		accessKey,
-		secretKey,
-		"",
-	)
-
 	cfg, err := config.LoadDefaultConfig(
 		context.Background(),
-		config.WithCredentialsProvider(staticProvider),
+		config.WithSharedConfigFiles([]string{"aws/config"}),
+		config.WithSharedCredentialsFiles([]string{"aws/credentials"}),
+		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
 	)
 
@@ -148,9 +139,13 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 	instanceName := r.URL.Query().Get("name")
 	// Parse timestamp query parameter
 	timestampParam := r.URL.Query().Get("secret")
+	// Parse Profile query parameter
+	profile := r.URL.Query().Get("profile")
+	// Parse Action query parameter
+	action := r.URL.Query().Get("action")
 
-	if region == "" || instanceName == "" || timestampParam == "" {
-		http.Error(w, "Please provide 'region' and 'name' and 'secret' query parameters", http.StatusBadRequest)
+	if region == "" || instanceName == "" || timestampParam == "" || profile == "" || action == "" {
+		http.Error(w, "Please provide 'region' , 'name' , 'secret' , 'profile' and 'action' query parameters", http.StatusBadRequest)
 		return
 	}
 
@@ -170,19 +165,11 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replace these with your AWS access key and secret key
-	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-
-	staticProvider := credentials.NewStaticCredentialsProvider(
-		accessKey,
-		secretKey,
-		"",
-	)
-
 	cfg, err := config.LoadDefaultConfig(
 		context.Background(),
-		config.WithCredentialsProvider(staticProvider),
+		config.WithSharedConfigFiles([]string{"aws/config"}),
+		config.WithSharedCredentialsFiles([]string{"aws/credentials"}),
+		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
 	)
 
@@ -219,7 +206,7 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.UserAgent() = "PostmanRuntime/7.35.0" {
+	if r.UserAgent() == "Antinone" {
 		http.Redirect(w, r, "/api/status", http.StatusSeeOther)
 		return
 	}
@@ -267,7 +254,7 @@ func main() {
 		}
 	}))
 
-	fmt.Println("Version : v1.2\nServer is running on :8080")
+	fmt.Println("Version : v1.3\nServer is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
