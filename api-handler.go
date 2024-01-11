@@ -78,14 +78,7 @@ func logging(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
-	region := r.URL.Query().Get("region")
-	profile := r.URL.Query().Get("profile")
-	if region == "" || profile == "" {
-		http.Error(w, "Please provide a 'region' or 'profile' query parameter", http.StatusBadRequest)
-		return
-	}
-
+func credentialing(region, profile string) (*lightsail.Client, error) {
 	cfg, err := config.LoadDefaultConfig(
 		context.Background(),
 		config.WithSharedConfigFiles([]string{"aws/config"}),
@@ -95,11 +88,104 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error loading AWS configuration: %v", err), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
 	}
 
 	client := lightsail.NewFromConfig(cfg)
+	return client, nil
+}
+
+func resetInstance(region, profile, instanceName string) (*lightsail.RebootInstanceOutput, error) {
+
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	// Use the "name" query parameter to identify the instance
+	params := &lightsail.RebootInstanceInput{
+		InstanceName: aws.String(instanceName),
+	}
+	resp, err := client.RebootInstance(context.TODO(), params)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting instance: %v", err)
+	}
+
+	return resp, nil
+}
+
+func statusInstance(region, profile, instanceName string) (*lightsail.GetInstanceOutput, error) {
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	params := &lightsail.GetInstanceInput{
+		InstanceName: aws.String(instanceName),
+	}
+
+	resp, err := client.GetInstance(context.TODO(), params)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting instance status: %v", err)
+	}
+
+	return resp, nil
+}
+
+func powerOffInstance(region, profile, instanceName string) (*lightsail.StopInstanceOutput, error) {
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	params := &lightsail.StopInstanceInput{
+		InstanceName: aws.String(instanceName),
+	}
+
+	resp, err := client.StopInstance(context.TODO(), params)
+	if err != nil {
+		return nil, fmt.Errorf("Error stopping instance: %v", err)
+	}
+
+	return resp, nil
+}
+
+func powerOnInstance(region, profile, instanceName string) (*lightsail.StartInstanceOutput, error) {
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	params := &lightsail.StartInstanceInput{
+		InstanceName: aws.String(instanceName),
+	}
+
+	resp, err := client.StartInstance(context.TODO(), params)
+	if err != nil {
+		return nil, fmt.Errorf("Error starting instance: %v", err)
+	}
+
+	return resp, nil
+}
+
+func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
+	region := r.URL.Query().Get("region")
+	profile := r.URL.Query().Get("profile")
+	if region == "" || profile == "" {
+		http.Error(w, "Please provide a 'region' or 'profile' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error loading AWS configuration: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	params := &lightsail.GetInstancesInput{}
 	resp, err := client.GetInstances(context.TODO(), params)
@@ -165,51 +251,62 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadDefaultConfig(
-		context.Background(),
-		config.WithSharedConfigFiles([]string{"aws/config"}),
-		config.WithSharedCredentialsFiles([]string{"aws/credentials"}),
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	var resp interface{}
 
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error loading AWS configuration: %v", err), http.StatusInternalServerError)
-		return
-	}
+	if action == "reset" {
+		resetResp, err := resetInstance(region, profile, instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error reseting instance: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = resetResp
+	} else if action == "poweroff" {
+		powerOffResp, err := powerOffInstance(region, profile, instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error powering off instance: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = powerOffResp
+	} else if action == "poweron" {
+		powerOnResp, err := powerOnInstance(region, profile, instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error powering on instance: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = powerOnResp
 
-	client := lightsail.NewFromConfig(cfg)
-
-	// Use the "name" query parameter to identify the instance
-	params := &lightsail.RebootInstanceInput{
-		InstanceName: aws.String(instanceName),
-	}
-	resp, err := client.RebootInstance(context.TODO(), params)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting instance: %v", err), http.StatusInternalServerError)
+	} else if action == "status" {
+		statusResp, err := statusInstance(region, profile, instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error getting instance status: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = statusResp
+	} else {
+		http.Error(w, "Invalid action specified", http.StatusBadRequest)
 		return
 	}
 
 	// Add the reset logic here
 	// You can use the "name" query parameter to reset the specific instance
 
-	responseJSON, err := json.Marshal(resp.Operations)
+	responseJSON, err := json.Marshal(resp)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Parse JSON into a slice of InstanceResponse
-	err = json.Unmarshal([]byte(responseJSON), &responses)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
-		return
-	}
+	// err = json.Unmarshal([]byte(responseJSON), &responses)
+	// if err != nil {
+	// 	http.Error(w, fmt.Sprintf("Error encoding JSON: %v", err), http.StatusInternalServerError)
+	// 	return
+	// }
 
-	if r.UserAgent() == "Antinone" {
-		http.Redirect(w, r, "/api/status", http.StatusSeeOther)
-		return
-	}
+	// if r.UserAgent() == "Antinone" {
+	// 	http.Redirect(w, r, "/api/status", http.StatusSeeOther)
+	// 	return
+	// }
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(responseJSON)
@@ -254,7 +351,7 @@ func main() {
 		}
 	}))
 
-	fmt.Println("Version : v1.3\nServer is running on :8080")
+	fmt.Println("Version : v1.4\nServer is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
