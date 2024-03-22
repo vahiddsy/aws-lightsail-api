@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"strconv"
@@ -172,6 +171,68 @@ func powerOnInstance(region, profile, instanceName string) (*lightsail.StartInst
 	return resp, nil
 }
 
+func changeIpInstance(region, profile, instanceName string) (*lightsail.GetStaticIpOutput, error) {
+	client, err := credentialing(region, profile)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	getStaticIPsInput := &lightsail.GetStaticIpsInput{
+		//IncludeStaticIpMetadata: aws.Bool(true), // IncludeStaticIpMetadata should be set to true
+	}
+
+	getStaticIPsOutput, err := client.GetStaticIps(context.TODO(), getStaticIPsInput) // Method name is GetStaticIps
+	if err != nil {
+		return nil, fmt.Errorf("Error Get Static IPs: %v", err)
+	}
+
+	// Release any existing static IP associated with the instance
+	for _, ip := range getStaticIPsOutput.StaticIps {
+		if ip.AttachedTo != nil && *ip.AttachedTo == instanceName {
+			releaseStaticIPInput := &lightsail.ReleaseStaticIpInput{
+				StaticIpName: ip.Name,
+			}
+
+			_, err = client.ReleaseStaticIp(context.TODO(), releaseStaticIPInput)
+			if err != nil {
+				return nil, fmt.Errorf("Error Release Static IP: %v", err)
+			}
+		}
+	}
+
+	createStaticIPInput := &lightsail.AllocateStaticIpInput{
+		StaticIpName: aws.String(fmt.Sprintf("IP-%s", instanceName)), // Corrected
+	}
+
+	createStaticIPOutput, err := client.AllocateStaticIp(context.TODO(), createStaticIPInput)
+	if err != nil {
+		return nil, fmt.Errorf("Error Create Static IP : %v", err)
+	}
+
+	// Attach the static IP to the instance
+	attachStaticIPInput := &lightsail.AttachStaticIpInput{
+		//StaticIpName: aws.String(fmt.Sprintf("IP-%s", instanceName)),
+		StaticIpName: createStaticIPOutput.Operations[0].ResourceName,
+		InstanceName: aws.String(instanceName), // Corrected
+	}
+	_, err = client.AttachStaticIp(context.TODO(), attachStaticIPInput)
+	if err != nil {
+		return nil, fmt.Errorf("Error Attach Static IP instance: %v", err)
+	}
+
+	getStaticIPInput := &lightsail.GetStaticIpInput{
+		StaticIpName: createStaticIPOutput.Operations[0].ResourceName,
+	}
+
+	getStaticIPOutput, err := client.GetStaticIp(context.TODO(), getStaticIPInput) // Method name is GetStaticIps
+	if err != nil {
+		return nil, fmt.Errorf("Error Get Static IP: %v", err)
+	}
+
+	return getStaticIPOutput, nil
+}
+
 func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	region := r.URL.Query().Get("region")
 	profile := r.URL.Query().Get("profile")
@@ -282,6 +343,15 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp = statusResp
+
+	} else if action == "changeip" {
+		changeResp, err := changeIpInstance(region, profile, instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error change IP instance status: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = changeResp
+
 	} else {
 		http.Error(w, "Invalid action specified", http.StatusBadRequest)
 		return
@@ -334,24 +404,24 @@ func main() {
 	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
 	http.HandleFunc("/api/regions", logging(listLightsailRegions))
 
-	http.HandleFunc("/api/status", logging(func(w http.ResponseWriter, r *http.Request) {
-		tmpl, err := template.ParseFiles("./web/index.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		//log.Printf("%s", responses[0])
-		data := responses[0]
+	// http.HandleFunc("/api/status", logging(func(w http.ResponseWriter, r *http.Request) {
+	// 	tmpl, err := template.ParseFiles("./web/index.html")
+	// 	if err != nil {
+	// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// 	//log.Printf("%s", responses[0])
+	// 	data := responses[0]
 
-		// Execute the template and pass the response as data
-		err = tmpl.Execute(w, data)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}))
+	// 	// Execute the template and pass the response as data
+	// 	err = tmpl.Execute(w, data)
+	// 	if err != nil {
+	// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 		return
+	// 	}
+	// }))
 
-	fmt.Println("Version : v1.4\nServer is running on :8080")
+	fmt.Println("Version : v1.5\nServer is running on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
