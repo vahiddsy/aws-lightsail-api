@@ -279,7 +279,7 @@ func listLightsailInstances(w http.ResponseWriter, r *http.Request) {
 	w.Write(responseJSON)
 }
 
-func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
+func actionLightsailInstance(w http.ResponseWriter, r *http.Request) {
 	// Parse region query parameter
 	region := r.URL.Query().Get("region")
 	// Parse name query parameter
@@ -307,8 +307,8 @@ func resetLightsailInstance(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 
 	// Check if the timestamp is within a 2-minute difference from now
-	if now-timestamp > 120 || timestamp-now > 120 {
-		http.Error(w, "Invalid request: Timestamp is more than 2 minutes difference from current time", http.StatusBadRequest)
+	if now-timestamp > 3600 {
+		http.Error(w, "Invalid request: Timestamp is more than 1 hours difference from current time", http.StatusBadRequest)
 		return
 	}
 
@@ -401,7 +401,7 @@ func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/api/instances", logging(listLightsailInstances))
-	http.HandleFunc("/api/instance", logging(resetLightsailInstance))
+	http.HandleFunc("/api/instance", logging(actionLightsailInstance))
 	http.HandleFunc("/api/regions", logging(listLightsailRegions))
 
 	// http.HandleFunc("/api/status", logging(func(w http.ResponseWriter, r *http.Request) {
