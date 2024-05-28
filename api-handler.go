@@ -3,16 +3,27 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
+	"github.com/cloudflare/cloudflare-go"
 )
+
+type CFconfig struct {
+	ApiKey   string `json:"apikey"`
+	ApiEmail string `json:"apiemail"`
+	Domain   string `json:"domain"`
+}
+
+var cloud_config []CFconfig
 
 type Location struct {
 	AvailabilityZone string `json:"AvailabilityZone"`
@@ -188,12 +199,15 @@ func changeIpInstance(region, profile, instanceName string) (*lightsail.GetStati
 	}
 
 	// Release any existing static IP associated with the instance
+	var oldIpInstance string
+	//var newIpInstance string
 	for _, ip := range getStaticIPsOutput.StaticIps {
 		if ip.AttachedTo != nil && *ip.AttachedTo == instanceName {
 			releaseStaticIPInput := &lightsail.ReleaseStaticIpInput{
 				StaticIpName: ip.Name,
 			}
-
+			//inja mitoni ip ghabli ro ghable release to value bezari
+			oldIpInstance = *ip.IpAddress
 			_, err = client.ReleaseStaticIp(context.TODO(), releaseStaticIPInput)
 			if err != nil {
 				return nil, fmt.Errorf("Error Release Static IP: %v", err)
@@ -228,6 +242,45 @@ func changeIpInstance(region, profile, instanceName string) (*lightsail.GetStati
 	getStaticIPOutput, err := client.GetStaticIp(context.TODO(), getStaticIPInput) // Method name is GetStaticIps
 	if err != nil {
 		return nil, fmt.Errorf("Error Get Static IP: %v", err)
+	}
+
+	//Update DNS Record
+	//newIp := getStaticIPOutput.StaticIp.IpAddress
+	newIpInstance := *getStaticIPOutput.StaticIp.IpAddress
+	if profile == "vahid" {
+		// apiKey := os.Getenv("CF_API_KEY")
+		// apiEmail := os.Getenv("CF_API_EMAIL")
+		apiKey := cloud_config[0].ApiKey
+		apiEmail := cloud_config[0].ApiEmail
+		//zoneID := os.Getenv("YOUR_ZONE_ID") // Replace with your Cloudflare zone ID
+		// dnsRecordID := "YOUR_DNS_RECORD_ID" // Replace with the ID of the DNS record you want to update
+		// newIP := "NEW_IP_ADDRESS"           // Replace with the new IP address
+		// Create a new Cloudflare API client
+		api, err := cloudflare.New(apiKey, apiEmail)
+		if err != nil {
+			fmt.Println("Error creating Cloudflare API client:", err)
+		}
+
+		zoneID, err := api.ZoneIDByName(cloud_config[0].Domain)
+		if err != nil {
+			log.Printf("Error in ZoneID  : %v\n", err)
+		}
+		recs, _, err := api.ListDNSRecords(context.Background(), cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{Type: "A", Content: oldIpInstance})
+		if err != nil {
+			log.Printf("Error in List DNS Record :  %v\n", err)
+		}
+
+		for _, r := range recs {
+			log.Printf("Record is  : %s: %s , %s , %s\n", r.Name, r.Content, r.ID, r.Comment)
+			params := cloudflare.UpdateDNSRecordParams{ID: r.ID, Type: "A", Name: r.Name, Content: newIpInstance, TTL: 1}
+			response, err := api.UpdateDNSRecord(context.Background(), cloudflare.ZoneIdentifier(zoneID), params)
+			if err != nil {
+				log.Printf("Error Get DNS Record : %v\n", err)
+				//log.Fatal(err)
+			}
+			log.Printf("Response Success GET DNS Record is %v\n", response)
+
+		}
 	}
 
 	return getStaticIPOutput, nil
@@ -400,6 +453,27 @@ func listLightsailRegions(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	configFile := flag.String("config", "./config.json", "string")
+	flag.Parse()
+
+	// Read JSON file
+	file_config, err := os.Open(*configFile)
+	if err != nil {
+		log.Println("Error opening config file:", err)
+		return
+	}
+	defer file_config.Close()
+
+	// Decode JSON data into slice of Config structs
+	//var config []Config
+	decoder_config := json.NewDecoder(file_config)
+	if err := decoder_config.Decode(&cloud_config); err != nil {
+		log.Println("Error decoding config JSON:", err)
+		return
+	}
+	fmt.Printf("Load Cloudflare Config...\n%v\n", cloud_config)
+
 	http.HandleFunc("/api/instances", logging(listLightsailInstances))
 	http.HandleFunc("/api/instance", logging(actionLightsailInstance))
 	http.HandleFunc("/api/regions", logging(listLightsailRegions))
@@ -421,8 +495,8 @@ func main() {
 	// 	}
 	// }))
 
-	fmt.Println("Version : v1.5\nServer is running on :8080")
-	err := http.ListenAndServe(":8080", nil)
+	fmt.Println("Version : v1.6\nServer is running on :8080")
+	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}
